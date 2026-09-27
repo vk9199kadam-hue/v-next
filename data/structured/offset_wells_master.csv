@@ -1,0 +1,6 @@
+well_id,well_name,lat,lon,total_depth_m,spud_year,field,status,primary_target
+OIL-NH-18,Naharkatiya-18,27.301,95.362,4100.0,2021,Naharkatiya,Stuck Pipe Incident (Resolved),Barail Sandstone
+OIL-NH-12,Naharkatiya-12,27.285,95.335,3950.0,2019,Naharkatiya,Tight Hole / Overpressure (Resolved),Barail Sandstone
+OIL-KGT-04,Kumchai-04,27.315,95.32,3720.0,2020,Kumchai,Severe Mud Loss Zone (Controlled),Barail Sandstone
+OIL-MOR-07,Moran-07,27.26,95.37,4200.0,2023,Moran,Normal Production,Tipam Sandstone
+OIL-DGN-02,Dikom-02,27.33,95.385,3650.0,2022,Dikom,Gas Kick Encountered (Controlled),Barail Sandstone

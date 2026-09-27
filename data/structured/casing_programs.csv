@@ -1,0 +1,6 @@
+well_id,casing_stage,casing_size_inch,shoe_depth_m,burst_psi,shoe_lot_ppg
+OIL-NH-18,Surface,13-3/8,950.0,3450,13.5
+OIL-NH-18,Intermediate,9-5/8,2600.0,4850,12.8
+OIL-NH-18,Production Liner,7,3650.0,6200,14.2
+OIL-NH-12,Intermediate,9-5/8,2580.0,4850,12.7
+OIL-KGT-04,Intermediate,9-5/8,2620.0,4900,12.6

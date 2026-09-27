@@ -1,0 +1,18 @@
+
+OIL INDIA LIMITED - WELL COMPLETION REPORT (WCR)
+WELL: Naharkatiya-18 (OIL-NH-18) | YEAR: 2021 | FIELD: Naharkatiya, Assam
+SECTION: Drilling Hazards & NPT Incident Log (Page 34)
+
+Incident Summary:
+At depth 2,847.0 meters TVD within the Barail Sandstone formation, the rig encountered severe erratic torque fluctuations spiking from 18.2 kNm to 31.4 kNm over a 12-minute interval. Simultaneous ROP dropped from 5.4 m/hr to 0.7 m/hr. 
+
+Root Cause Analysis:
+Micro-fractured reactive carbonaceous shale interbeds sloughed into the wellbore, causing severe bit balling and differential mechanical sticking of the bottom hole assembly (BHA).
+
+Mitigation Procedure Implemented:
+1. Did NOT apply maximum overpull to prevent parted drill string.
+2. Engaged top drive at 35-40 RPM and carefully back-reamed 50 meters back to 2,797 meters.
+3. Pumped a 40 bbl weighted high-viscosity pill treated with 4% liquid lubricant to free the stabilizer.
+4. Circulated bottoms up for two complete cycles until shale cavings cleared over shaker screens.
+5. Successfully resumed drilling at 2,847 meters with zero pipe loss. Total NPT was restricted to 4.5 hours.
+Recommendation for offset wells: Always maintain high flow rates and prepare high-vis pill in advance when drilling between 2,800m and 2,900m in Barail Sandstone.

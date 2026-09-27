@@ -1,0 +1,35 @@
+# Environment variables and secrets
+.env
+*.env
+!.env.example
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+
+# Database & Cache files
+*.sqlite
+*.sqlite3
+*.duckdb
+chroma_storage/
+
+# Operating System
+.DS_Store
+Thumbs.db
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo

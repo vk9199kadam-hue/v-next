@@ -1,0 +1,40 @@
+[project]
+name = "v-next"
+version = "1.0.0"
+description = "V-Next Nearby Wells Intelligence System (NWIS) - Real-time AI Decision Support & Geospatial Offset Intelligence for Drilling Operations (OIL / eRTMAC companion)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "SIXB⊗TSS - SIH 2026 Team" }
+]
+keywords = [
+    "drilling-engineering",
+    "oil-and-gas",
+    "oil-india-limited",
+    "ertmac",
+    "rag",
+    "duckdb",
+    "groq-api",
+    "real-time-telemetry",
+    "geospatial-intelligence"
+]
+dependencies = [
+    "duckdb>=1.1.0",
+    "fastapi>=0.115.0",
+    "folium>=0.18.0",
+    "groq>=0.11.0",
+    "pandas>=2.2.0",
+    "plotly>=5.24.0",
+    "pydantic>=2.9.0",
+    "pypdf>=5.0.0",
+    "python-dotenv>=1.0.1",
+    "scikit-learn>=1.5.0",
+    "streamlit>=1.40.0",
+    "streamlit-folium>=0.23.0",
+    "uvicorn>=0.32.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/vk9199kadam-hue/v-next"
+Repository = "https://github.com/vk9199kadam-hue/v-next.git"
+

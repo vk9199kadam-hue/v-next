@@ -1,0 +1,11 @@
+well_id,formation_name,top_depth_m,base_depth_m
+OIL-NH-18,Alluvium / Dhekiajuli,0,850
+OIL-NH-18,Tipam Sandstone,850,2200
+OIL-NH-18,Surma / Bokabil Shale,2200,2750
+OIL-NH-18,Barail Sandstone,2750,3200
+OIL-NH-12,Tipam Sandstone,820,2180
+OIL-NH-12,Surma / Bokabil Shale,2180,2730
+OIL-NH-12,Barail Sandstone,2730,3150
+OIL-KGT-04,Tipam Sandstone,900,2250
+OIL-KGT-04,Surma / Bokabil Shale,2250,2780
+OIL-KGT-04,Barail Sandstone,2780,3220

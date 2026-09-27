@@ -1,0 +1,17 @@
+
+OIL INDIA LIMITED - DAILY DRILLING REPORT & LOSS REPORT
+WELL: Kumchai-04 (OIL-KGT-04) | YEAR: 2020 | FIELD: Kumchai, Arunachal / Assam Foothills
+SECTION: Lost Circulation Event Report (Page 67)
+
+Incident Summary:
+At depth 2,890.0 meters TVD, drill bit penetrated a sub-pressured permeable Barail sand interval. Active pit volume dropped by 180 barrels within 35 minutes. Return flow was reduced to 35% of pump-in volume.
+
+Critical Constraint:
+The intermediate 9-5/8 inch casing shoe at 2,620 meters has a leak-off test equivalent mud weight of 12.6 ppg. Attempting to overcome pore pressure by increasing mud weight above 12.1 ppg resulted in immediate hydraulic fracture of the formation.
+
+Mitigation Executed:
+1. Suspended forward drilling immediately.
+2. Mixed and spotted a 30 bbl medium-grade LCM pill containing 25 ppb mica and shredded nut shells.
+3. Allowed 2 hours soak time with low pump strokes (18 SPM).
+4. Restored full mud returns and drilled ahead with 11.6 ppg mud weight.
+Recommendation: Never exceed 11.9 ppg mud weight in this sub-zone; casing burst margin and fracture gradient are extremely narrow.
