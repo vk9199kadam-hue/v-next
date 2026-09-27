@@ -336,9 +336,13 @@ alerts = tel_eng.evaluate_reading(telemetry_snapshot)
 lookaheads = tel_eng.check_proactive_lookahead(current_depth, window_m=100.0)
 
 # Multi-Model Advanced Inference
-drilling_state = tel_eng.state_recognizer.identify_state(telemetry_snapshot)
-loss_risk = tel_eng.risk_classifier.predict_loss_severity(telemetry_snapshot)
-edge_check = tel_eng.edge_safety.evaluate_edge_safety(telemetry_snapshot)
+state_recognizer = getattr(tel_eng, "state_recognizer", None) or DrillingStateRecognizer()
+risk_classifier = getattr(tel_eng, "risk_classifier", None) or RiskClassifierEngine()
+edge_safety = getattr(tel_eng, "edge_safety", None) or EdgeSafetyEngine()
+
+drilling_state = state_recognizer.identify_state(telemetry_snapshot)
+loss_risk = risk_classifier.predict_loss_severity(telemetry_snapshot)
+edge_check = edge_safety.evaluate_edge_safety(telemetry_snapshot)
 fcbr_match = fcbr_eng.match_case(telemetry_snapshot)
 
 # Minimum Curvature Directional Survey (TVD Calculation)

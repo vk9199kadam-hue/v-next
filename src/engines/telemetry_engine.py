@@ -23,14 +23,54 @@ class TelemetryEngine:
         self.con = duckdb_con
         
         # Sub-engines
-        self.kalman_filter = TelemetryKalmanFilter()
-        self.risk_classifier = RiskClassifierEngine()
-        self.state_recognizer = DrillingStateRecognizer()
-        self.edge_safety = EdgeSafetyEngine()
+        self._kalman_filter = TelemetryKalmanFilter()
+        self._risk_classifier = RiskClassifierEngine()
+        self._state_recognizer = DrillingStateRecognizer()
+        self._edge_safety = EdgeSafetyEngine()
 
         # Rolling buffer for 3-sigma telemetry QC
         self.history_buffer: List[Dict[str, float]] = []
         self.buffer_max_len = 30
+
+    @property
+    def state_recognizer(self):
+        if not hasattr(self, "_state_recognizer") or self._state_recognizer is None:
+            self._state_recognizer = DrillingStateRecognizer()
+        return self._state_recognizer
+
+    @state_recognizer.setter
+    def state_recognizer(self, val):
+        self._state_recognizer = val
+
+    @property
+    def risk_classifier(self):
+        if not hasattr(self, "_risk_classifier") or self._risk_classifier is None:
+            self._risk_classifier = RiskClassifierEngine()
+        return self._risk_classifier
+
+    @risk_classifier.setter
+    def risk_classifier(self, val):
+        self._risk_classifier = val
+
+    @property
+    def edge_safety(self):
+        if not hasattr(self, "_edge_safety") or self._edge_safety is None:
+            self._edge_safety = EdgeSafetyEngine()
+        return self._edge_safety
+
+    @edge_safety.setter
+    def edge_safety(self, val):
+        self._edge_safety = val
+
+    @property
+    def kalman_filter(self):
+        if not hasattr(self, "_kalman_filter") or self._kalman_filter is None:
+            self._kalman_filter = TelemetryKalmanFilter()
+        return self._kalman_filter
+
+    @kalman_filter.setter
+    def kalman_filter(self, val):
+        self._kalman_filter = val
 
     def apply_three_sigma_qc(self, reading: Dict[str, float]) -> Dict[str, Any]:
         """
