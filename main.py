@@ -54,6 +54,46 @@ def run_diagnostics():
         telem = TelemetryEngine(str(BASE_DIR / "data" / "telemetry" / "active_well_stream.csv"), vless.con)
         lookahead = telem.check_proactive_lookahead(2800.0, 150.0)
         print(f" [OK] eRTMAC Telemetry stream verified (Lookahead scans active: {len(lookahead)} hazards detected).")
+
+        # 2. Check Advanced Risk ML & State Recognition
+        from src.engines.risk_classifier import RiskClassifierEngine
+        from src.engines.state_recognizer import DrillingStateRecognizer
+        risk_eng = RiskClassifierEngine()
+        sample_telem = {"depth_m": 2847.2, "rop_mph": 14.2, "wob_kn": 125.0, "rpm": 110.0, "torque_knm": 18.4, "spp_psi": 2850.0, "flow_in_gpm": 520.0, "flow_out_gpm": 515.0, "ecd_ppg": 11.85}
+        loss_pred = risk_eng.predict_loss_severity(sample_telem)
+        print(f" [OK] Random Forest 5-Class Loss ML verified: {loss_pred['tier_label']} ({loss_pred['severity_name']}).")
+        
+        state_eng = DrillingStateRecognizer()
+        state_pred = state_eng.identify_state(sample_telem)
+        print(f" [OK] SVM Drilling State Recognizer verified: {state_pred['state_name']} ({state_pred['confidence_pct']}% conf).")
+
+        # 3. Check Minimum Curvature MD-to-TVD & Geomechanics
+        from src.engines.directional_survey import DirectionalSurveyEngine
+        from src.engines.geomechanics import GeomechanicsEngine
+        survey_df = DirectionalSurveyEngine.generate_synthetic_active_trajectory(2847.2)
+        active_tvd = survey_df.iloc[-1]["tvd"]
+        print(f" [OK] Minimum Curvature Directional Engine: MD 2,847.2m -> TVD {active_tvd}m (Disp: {survey_df.iloc[-1]['disp_m']}m).")
+
+        geom_eng = GeomechanicsEngine()
+        mud_win = geom_eng.calculate_safe_mud_window(2847.2, "Barail Sandstone")
+        print(f" [OK] Geomechanical Safe Mud Window (R^2={mud_win['model_r2_accuracy']}): [{mud_win['safe_window_min_ppg']} - {mud_win['safe_window_max_ppg']} ppg].")
+
+        # 4. Check 3σ INPT Analyzer, Edge Safety & Fuzzy CBR
+        from src.engines.inpt_analyzer import INPTAnalyzerEngine
+        from src.engines.edge_safety import EdgeSafetyEngine
+        from src.ai.fcbr_engine import FuzzyCBREngine
+
+        inpt_eng = INPTAnalyzerEngine()
+        inpt_res = inpt_eng.analyze_crew_efficiency()
+        print(f" [OK] 3σ INPT Crew Analyzer: {inpt_res['total_invisible_delay_hours']}h invisible downtime identified ({inpt_res['potential_savings_inr']} savings).")
+
+        edge_eng = EdgeSafetyEngine()
+        edge_res = edge_eng.evaluate_edge_safety(sample_telem)
+        print(f" [OK] Microsecond Edge Safety Interlock: Latency {edge_res['execution_latency_ms']} ms ({edge_res['status']}).")
+
+        fcbr_eng = FuzzyCBREngine()
+        fcbr_res = fcbr_eng.match_case(sample_telem)
+        print(f" [OK] Fuzzy CBR Cobweb Matcher: Top Analog {fcbr_res['top_match']['well_name']} ({fcbr_res['top_match']['similarity_score_pct']}% similarity).")
         
     except Exception as e:
         print(f" [FAIL] Engine check encountered an error: {e}")

@@ -12,6 +12,10 @@ from src.engines.telemetry_engine import TelemetryEngine
 from src.ai.unified_context import UnifiedContextBuilder
 from src.ai.jev_reasoning import JEVReasoningEngine
 from src.ai.aver_chatbot import AVERChatbot
+from src.engines.directional_survey import DirectionalSurveyEngine
+from src.engines.inpt_analyzer import INPTAnalyzerEngine
+from src.engines.geomechanics import GeomechanicsEngine
+from src.ai.fcbr_engine import FuzzyCBREngine
 
 app = FastAPI(
     title="V-Next: Nearby Wells Intelligence System (NWIS) API",
@@ -33,6 +37,10 @@ vl_rag = VectorlessRAGEngine()
 tel_eng = TelemetryEngine("data/telemetry/active_well_stream.csv", vl_rag.con)
 jev_eng = JEVReasoningEngine()
 aver_chat = AVERChatbot()
+dir_eng = DirectionalSurveyEngine()
+inpt_eng = INPTAnalyzerEngine()
+geom_eng = GeomechanicsEngine()
+fcbr_eng = FuzzyCBREngine()
 
 class QueryRequest(BaseModel):
     query: str
@@ -90,6 +98,37 @@ def evaluate_decision(telemetry_data: Dict[str, float]):
         "aver_briefing": aver_brief
     }
 
+@app.get("/api/directional-survey")
+def get_directional_survey(depth_m: float = 2847.2):
+    traj_df = dir_eng.generate_synthetic_active_trajectory(depth_m)
+    return traj_df.to_dict(orient="records")
+
+@app.get("/api/geomechanics-window")
+def get_geomechanics_window(depth_m: float = 2847.2, formation: str = "Barail Sandstone"):
+    return geom_eng.calculate_safe_mud_window(depth_m, formation)
+
+@app.get("/api/inpt-benchmarks")
+def get_inpt_benchmarks():
+    return inpt_eng.analyze_crew_efficiency()
+
+@app.post("/api/predict-fluid-loss")
+def predict_fluid_loss(telemetry_data: Dict[str, float]):
+    loss_pred = tel_eng.risk_classifier.predict_loss_severity(telemetry_data)
+    rop_opt = tel_eng.risk_classifier.optimize_rop(
+        telemetry_data.get("wob_kn", 125.0),
+        telemetry_data.get("rpm", 110.0),
+        telemetry_data.get("rop_mph", 14.2),
+        telemetry_data.get("torque_knm", 18.4)
+    )
+    return {
+        "fluid_loss_classification": loss_pred,
+        "rop_optimization": rop_opt
+    }
+
+@app.post("/api/fcbr-match")
+def match_fcbr_case(telemetry_data: Dict[str, float]):
+    return fcbr_eng.match_case(telemetry_data)
+
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
     await websocket.accept()
@@ -106,3 +145,4 @@ async def websocket_telemetry(websocket: WebSocket):
             await asyncio.sleep(2)
     except WebSocketDisconnect:
         pass
+

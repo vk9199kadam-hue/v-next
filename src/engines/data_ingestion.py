@@ -10,13 +10,103 @@ from src.utils.config import BASE_DIR
 class DataIngestionPipeline:
     """
     Phase 1: Ingestion and processing engine for:
-    1. Unstructured documents (WCR/DDR PDFs and text logs into Vector RAG)
+    1. Unstructured documents (WCR/DDR PDFs and text logs into Vector RAG with Deep NLP)
     2. Structured spreadsheets (Offset well registers and trajectories into DuckDB)
     3. eRTMAC Telemetry stream calibrator and baseline tuner
     """
 
-    @staticmethod
+    DRILLER_LEXICON_MAP = {
+        r"\bdrlg\b": "drilling",
+        r"\bdrld\b": "drilled",
+        r"\bdrl\b": "drill",
+        r"\bcsg\b": "casing",
+        r"\bbha\b": "bottom_hole_assembly",
+        r"\bassy\b": "assembly",
+        r"\bmtvd\b": "true_vertical_depth",
+        r"\bmmd\b": "measured_depth",
+        r"\bwob\b": "weight_on_bit",
+        r"\bspp\b": "standpipe_pressure",
+        r"\bppg\b": "pounds_per_gallon",
+        r"\blcm\b": "lost_circulation_material",
+        r"\bpooh\b": "pull_out_of_hole",
+        r"\brih\b": "run_in_hole",
+        r"\brpm\b": "rotations_per_minute",
+        r"\bgpm\b": "gallons_per_minute",
+        r"\bknm\b": "kilonewton_meters",
+        r"\bkn\b": "kilonewtons"
+    }
+
+    @classmethod
+    def clean_and_denoise_text(cls, raw_text: str) -> str:
+        """RegEx cleaning layer to purge formatting noise, non-ASCII symbols, and normalize units."""
+        # Remove non-ASCII characters
+        text = re.sub(r"[^\x00-\x7F]+", " ", raw_text)
+        # Normalize fractional inches (e.g. 8-1/2" -> 8.5 inch)
+        text = re.sub(r'(\d+)-1/2"', r"\1.5 inch", text)
+        text = re.sub(r'(\d+)-1/4"', r"\1.25 inch", text)
+        text = re.sub(r'(\d+)-3/4"', r"\1.75 inch", text)
+        # Normalize whitespace
+        text = re.sub(r"[\r\n\t]+", " ", text)
+        text = re.sub(r"\s{2,}", " ", text)
+        return text.strip()
+
+    @classmethod
+    def expand_driller_shorthand(cls, text: str) -> str:
+        """Expands oilfield shorthand abbreviations into standardized technical vocabulary."""
+        expanded = text
+        for pattern, replacement in cls.DRILLER_LEXICON_MAP.items():
+            expanded = re.sub(pattern, replacement, expanded, flags=re.IGNORECASE)
+        return expanded
+
+    @classmethod
+    def extract_numerical_entities(cls, text: str) -> List[Dict[str, Any]]:
+        """Extracts structured drilling parameters alongside their physical units."""
+        patterns = [
+            ("Depth", r"(\d+\.?\d*)\s*(m|meters|ft|feet|mTVD|mMD)"),
+            ("Mud Weight", r"(\d+\.?\d*)\s*(ppg|sg|specific gravity|kg/m3)"),
+            ("Flow Rate", r"(\d+\.?\d*)\s*(gpm|lpm|bph|m3/hr)"),
+            ("WOB", r"(\d+\.?\d*)\s*(klbs|kn|tons|tonne)"),
+            ("Torque", r"(\d+\.?\d*)\s*(knm|ft-lbs|kft-lb)"),
+            ("SPP", r"(\d+\.?\d*)\s*(psi|bar|kpa)")
+        ]
+        entities = []
+        for param, pat in patterns:
+            matches = re.findall(pat, text, re.IGNORECASE)
+            for val, unit in matches[:3]: # Cap at top 3 per parameter
+                entities.append({"parameter": param, "value": float(val), "unit": unit})
+        return entities
+
+    @classmethod
+    def mine_event_symptom_action(cls, text: str) -> Dict[str, List[str]]:
+        """
+        Classifies sentences in historical narrative into EVENT, SYMPTOM, and ACTION sequences.
+        """
+        sentences = re.split(r"[.!?]\s+", text)
+        events = []
+        symptoms = []
+        actions = []
+
+        for s in sentences:
+            s_clean = s.strip()
+            if not s_clean:
+                continue
+            lower = s_clean.lower()
+            if any(k in lower for k in ["stuck pipe", "lost circulation", "blowout", "gas kick", "tight hole", "packoff"]):
+                events.append(s_clean[:140])
+            elif any(k in lower for k in ["torque spike", "pressure drop", "gain in pit", "plunge in rop", "erratic"]):
+                symptoms.append(s_clean[:140])
+            elif any(k in lower for k in ["spot", "pill", "ream", "jar", "weight up", "circulate", "squeeze", "cement"]):
+                actions.append(s_clean[:140])
+
+        return {
+            "events": events[:3],
+            "symptoms": symptoms[:3],
+            "actions": actions[:3]
+        }
+
+    @classmethod
     def process_unstructured_document(
+        cls,
         file_bytes: bytes,
         filename: str,
         well_id: str,
@@ -24,7 +114,7 @@ class DataIngestionPipeline:
         vector_engine
     ) -> Dict[str, Any]:
         """
-        Extracts, analyzes, chunks, and indexes an uploaded PDF or TXT report into Vector RAG.
+        Extracts, denoises, expands driller shorthand, and indexes into Vector RAG.
         """
         extracted_text = ""
         total_pages = 1
@@ -37,7 +127,19 @@ class DataIngestionPipeline:
         else:
             extracted_text = file_bytes.decode("utf-8", errors="ignore")
 
-        # Entity & Hazard Detection
+        # 1. RegEx Denoising & Cleaning
+        cleaned_text = cls.clean_and_denoise_text(extracted_text)
+
+        # 2. Expand Driller Shorthand
+        canonical_text = cls.expand_driller_shorthand(cleaned_text)
+
+        # 3. Extract Numerical Entities & Parameters
+        entities = cls.extract_numerical_entities(canonical_text)
+
+        # 4. Mine Event-Symptom-Action Sequences
+        esa_sequences = cls.mine_event_symptom_action(canonical_text)
+
+        # 5. Entity & Hazard Detection
         hazard_keywords = [
             "stuck pipe", "lost circulation", "mud loss", "kick",
             "tight hole", "overpull", "packoff", "torque spike",
@@ -45,24 +147,24 @@ class DataIngestionPipeline:
         ]
         detected_hazards = []
         for kw in hazard_keywords:
-            matches = len(re.findall(re.escape(kw), extracted_text, re.IGNORECASE))
+            matches = len(re.findall(re.escape(kw), canonical_text, re.IGNORECASE))
             if matches > 0:
                 detected_hazards.append(f"{kw.title()} ({matches}x)")
 
-        # Save to disk for persistence
+        # Save raw to disk for persistence
         save_path = BASE_DIR / "data" / "historical_reports" / filename
         with open(save_path, "wb") as f:
             f.write(file_bytes)
 
-        # Index into Vector RAG
+        # Index canonical text into Vector RAG
         chunks_added = vector_engine.add_document_content(
-            text=extracted_text,
+            text=canonical_text,
             well_id=well_id,
             formation=formation,
             filename=filename
         )
 
-        word_count = len(extracted_text.split())
+        word_count = len(canonical_text.split())
 
         return {
             "filename": filename,
@@ -72,6 +174,10 @@ class DataIngestionPipeline:
             "word_count": word_count,
             "chunks_added": chunks_added,
             "detected_hazards": detected_hazards or ["None detected (Normal Drilling Log)"],
+            "numerical_entities_extracted": len(entities),
+            "sample_entities": entities[:4],
+            "event_symptom_action_sequences": esa_sequences,
+            "shorthand_canonicalized": True,
             "status": "SUCCESS"
         }
 

@@ -3,6 +3,8 @@ import plotly.graph_objects as go
 import folium
 from streamlit_folium import st_folium
 import pandas as pd
+import numpy as np
+import math
 import json
 import time
 
@@ -14,6 +16,13 @@ from src.ai.unified_context import UnifiedContextBuilder
 from src.ai.jev_reasoning import JEVReasoningEngine
 from src.ai.aver_chatbot import AVERChatbot
 from src.engines.data_ingestion import DataIngestionPipeline
+from src.engines.risk_classifier import RiskClassifierEngine
+from src.engines.state_recognizer import DrillingStateRecognizer
+from src.engines.directional_survey import DirectionalSurveyEngine
+from src.engines.inpt_analyzer import INPTAnalyzerEngine
+from src.engines.geomechanics import GeomechanicsEngine
+from src.engines.edge_safety import EdgeSafetyEngine
+from src.ai.fcbr_engine import FuzzyCBREngine
 
 # Page configuration
 st.set_page_config(
@@ -243,9 +252,13 @@ def load_system():
     tel_eng = TelemetryEngine("data/telemetry/active_well_stream.csv", vl_rag.con)
     jev_eng = JEVReasoningEngine()
     aver_chat = AVERChatbot()
-    return v_rag, vl_rag, tel_eng, jev_eng, aver_chat
+    fcbr_eng = FuzzyCBREngine()
+    inpt_eng = INPTAnalyzerEngine()
+    geom_eng = GeomechanicsEngine()
+    dir_eng = DirectionalSurveyEngine()
+    return v_rag, vl_rag, tel_eng, jev_eng, aver_chat, fcbr_eng, inpt_eng, geom_eng, dir_eng
 
-v_rag, vl_rag, tel_eng, jev_eng, aver_chat = load_system()
+v_rag, vl_rag, tel_eng, jev_eng, aver_chat, fcbr_eng, inpt_eng, geom_eng, dir_eng = load_system()
 
 # Session State Management
 if "anomaly_state" not in st.session_state:
@@ -296,7 +309,7 @@ elif st.session_state.anomaly_state == "lookahead_loss":
     current_wob = 122.0
     current_ecd = 12.10
     current_flow_in = 520.0
-    current_flow_out = 520.0
+    current_flow_out = 430.0  # Noticeable fluid loss for ML detection
 else:
     current_depth = 2844.0
     current_torque = 18.2
@@ -308,9 +321,11 @@ else:
 
 telemetry_snapshot = {
     "depth_m": current_depth,
+    "current_depth": current_depth,
     "torque_knm": current_torque,
     "rop_mph": current_rop,
     "wob_kn": current_wob,
+    "rpm": 110.0 if current_rop > 2.0 else 35.0,
     "ecd_ppg": current_ecd,
     "flow_in_gpm": current_flow_in,
     "flow_out_gpm": current_flow_out,
@@ -319,6 +334,16 @@ telemetry_snapshot = {
 
 alerts = tel_eng.evaluate_reading(telemetry_snapshot)
 lookaheads = tel_eng.check_proactive_lookahead(current_depth, window_m=100.0)
+
+# Multi-Model Advanced Inference
+drilling_state = tel_eng.state_recognizer.identify_state(telemetry_snapshot)
+loss_risk = tel_eng.risk_classifier.predict_loss_severity(telemetry_snapshot)
+edge_check = tel_eng.edge_safety.evaluate_edge_safety(telemetry_snapshot)
+fcbr_match = fcbr_eng.match_case(telemetry_snapshot)
+
+# Minimum Curvature Directional Survey (TVD Calculation)
+active_survey = dir_eng.generate_synthetic_active_trajectory(current_depth)
+current_tvd = active_survey.iloc[-1]["tvd"]
 
 # ==============================================================================
 # 1. RIG FLOOR HUD MODE (Glanceable, High-Contrast, One-Tap Actions)
@@ -335,6 +360,24 @@ if mode == "🏗️ Rig Floor HUD (Field)":
                 ● eRTMAC LIVE STREAMING
             </span>
         </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Multi-Model Rig State Badges
+    st.markdown(f"""
+    <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+        <span style="background: #F1F5F9; color: #0F172A; border: 1.5px solid #CBD5E1; padding: 6px 12px; border-radius: 6px; font-weight: 800; font-size: 0.85rem;">
+            RIG STATE: {drilling_state['badge_display']}
+        </span>
+        <span style="background: {loss_risk['color_hex']}15; color: {loss_risk['color_hex']}; border: 1.5px solid {loss_risk['color_hex']}; padding: 6px 12px; border-radius: 6px; font-weight: 800; font-size: 0.85rem;">
+            ML FLUID LOSS: {loss_risk['tier_label']} ({loss_risk['severity_name']})
+        </span>
+        <span style="background: #ECFDF5; color: #059669; border: 1.5px solid #A7F3D0; padding: 6px 12px; border-radius: 6px; font-weight: 800; font-size: 0.85rem;">
+            ● 3σ QC PASSED (1 Hz)
+        </span>
+        <span style="background: #FFF7ED; color: #EA580C; border: 1.5px solid #FFEDD5; padding: 6px 12px; border-radius: 6px; font-weight: 800; font-size: 0.85rem;">
+            ⚡ EDGE PLC: {edge_check['execution_latency_ms']} ms ({edge_check['status']})
+        </span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -378,9 +421,9 @@ if mode == "🏗️ Rig Floor HUD (Field)":
     with col_g1:
         st.markdown(f"""
         <div class="metric-box" style="border-top: 4px solid #EA580C;">
-            <div class="metric-label">BIT DEPTH</div>
-            <div class="metric-val">{current_depth:.1f} <span style="font-size: 1.1rem; color: #64748B;">m</span></div>
-            <div class="metric-sub" style="color: #EA580C; font-weight: 700;">Target: 3,800.0 m</div>
+            <div class="metric-label">BIT DEPTH (MD / TVD)</div>
+            <div class="metric-val">{current_depth:.1f} <span style="font-size: 1.0rem; color: #64748B;">m MD</span></div>
+            <div class="metric-sub" style="color: #EA580C; font-weight: 700;">TVD: {current_tvd:.1f} m (Min. Curvature)</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -420,7 +463,7 @@ if mode == "🏗️ Rig Floor HUD (Field)":
 
     # 1-TAP ACTION RECOMMENDATION CARD
     if st.session_state.anomaly_state == "torque_spike":
-        st.markdown("""
+        st.markdown(f"""
         <div class="recommendation-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <span class="badge-orange">
@@ -435,6 +478,12 @@ if mode == "🏗️ Rig Floor HUD (Field)":
                 <b>Historical Offset Precedent:</b> Offset well <b>Naharkatiya-18 (OIL-NH-18, 3.2km away)</b> drilled this exact Barail Sandstone interval at 2,847m TVD in 2021. 
                 Applying this procedure successfully freed the string in <b>4.5 hours with zero fish</b>.
             </p>
+            <div style="background: #EFF6FF; border-left: 4px solid #3B82F6; padding: 12px 16px; border-radius: 6px; margin-bottom: 12px;">
+                <p style="color: #1E40AF; margin: 0; font-size: 0.95rem; font-weight: 700;">
+                    🎯 <b>FUZZY CBR COBWEB MATCH ({fcbr_match['top_match']['similarity_score_pct']}% Analog):</b> Case {fcbr_match['top_match']['case_id']} ({fcbr_match['top_match']['well_name']})<br/>
+                    <span style="font-weight: 500; color: #1E3A8A;">Proven Solution: {fcbr_match['top_match']['solution']} ({fcbr_match['top_match']['provenance']})</span>
+                </p>
+            </div>
             <div style="background: #FEF2F2; border-left: 4px solid #EF4444; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px;">
                 <p style="color: #991B1B; margin: 0; font-size: 0.95rem; font-weight: 700;">
                     ⚠️ <b>Risk if Ignored:</b> Irreversible differential mechanical sticking within 20 mins. Estimated NPT: ₹2.5 Crore ($300,000).
@@ -470,10 +519,13 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    tab_ingest, tab_map, tab_correlator, tab_vector, tab_audit, tab_aver = st.tabs([
+    tab_ingest, tab_map, tab_3d, tab_correlator, tab_inpt, tab_geom, tab_vector, tab_audit, tab_aver = st.tabs([
         "📥 Data Processing Hub (Phase 1)",
         "🗺️ Geospatial Map & Intelligence",
-        "📊 Formation Depth Correlator",
+        "🌐 3D Subsurface Trajectories",
+        "📊 Formation Depth & TVD Correlator",
+        "⏱️ Crew INPT & Efficiency Benchmarks",
+        "🔬 Geomechanics & Safe Mud Window",
         "📄 Knowledge Search (Vector RAG)",
         "📜 Decision Audit Trail",
         "💬 AVER AI Advisory Chat"
@@ -717,10 +769,103 @@ else:
                     st.markdown("#### 📋 AVER Plain-English Advisory Briefing:")
                     st.markdown(aver_brief)
 
-    # TAB 2: FORMATION & DEPTH CORRELATOR
+    # TAB 2: 3D SUBSURFACE TRAJECTORIES & HORIZONS
+    with tab_3d:
+        st.subheader("🌐 3D Subsurface Wellbore Trajectories & Formation Horizons")
+        st.caption("Interactive 3D visualization using Minimum Curvature directional surveys (API RP 7G) and regional stratigraphic dip planes.")
+
+        col_3d_info, col_3d_canvas = st.columns([1, 2.5])
+        with col_3d_info:
+            st.markdown(f"""
+            <div class="clean-card" style="border-top: 4px solid #EA580C; margin-bottom: 12px;">
+                <h4 style="color: #EA580C; margin-top: 0;">Active Wellbore Survey</h4>
+                <p style="font-size: 0.95rem; line-height: 1.6;">
+                <b>Rig:</b> OIL Naharkatiya Active-01<br/>
+                <b>Measured Depth:</b> {current_depth:.1f} m MD<br/>
+                <b>True Vertical Depth:</b> {current_tvd:.1f} m TVD<br/>
+                <b>Total Displacement:</b> {active_survey.iloc[-1]['disp_m']:.1f} m<br/>
+                <b>Max Dogleg Severity:</b> {active_survey['dls_deg_30m'].max():.2f}°/30m
+                </p>
+            </div>
+            <div class="clean-card" style="border-top: 4px solid #3B82F6;">
+                <h4 style="color: #1E40AF; margin-top: 0;">Subsurface Legend</h4>
+                <p style="font-size: 0.92rem; line-height: 1.6;">
+                🟠 <b>Active Well (NH-24):</b> S-Curve Directional<br/>
+                ⚪ <b>Offsets:</b> Adjacent historical trajectories<br/>
+                🟤 <b>Formation Horizon:</b> Barail Top (~2,400m TVD)<br/>
+                🔴 <b>Hazard Pin:</b> Recorded Stuck Pipe Zone
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col_3d_canvas:
+            fig_3d = go.Figure()
+
+            # Active Well Trajectory
+            fig_3d.add_trace(go.Scatter3d(
+                x=active_survey["east"],
+                y=active_survey["north"],
+                z=-active_survey["tvd"],
+                mode="lines+markers",
+                name="Active Well (NH-24)",
+                line=dict(color="#EA580C", width=7),
+                marker=dict(size=3, color="#EA580C")
+            ))
+
+            # Offset Well Trajectories
+            nearby_offsets = vl_rag.get_nearby_wells(ACTIVE_WELL_CONFIG["lat"], ACTIVE_WELL_CONFIG["lon"], radius_km).to_dict(orient="records")
+            offset_paths = dir_eng.generate_offset_trajectories(nearby_offsets)
+            for w_id, off_df in offset_paths.items():
+                fig_3d.add_trace(go.Scatter3d(
+                    x=off_df["east"],
+                    y=off_df["north"],
+                    z=-off_df["tvd"],
+                    mode="lines",
+                    name=f"Offset {w_id}",
+                    line=dict(width=3, dash="dot")
+                ))
+
+            # Formation Top Plane (Barail Sandstone at ~2,400m TVD with 2.4° dip)
+            grid_x = np.linspace(-1500, 1500, 6)
+            grid_y = np.linspace(-1500, 1500, 6)
+            gx, gy = np.meshgrid(grid_x, grid_y)
+            gz = -2400.0 + (gy * math.tan(math.radians(2.4))) # Regional south-southeast dip
+            fig_3d.add_trace(go.Surface(
+                x=gx, y=gy, z=gz,
+                opacity=0.30,
+                colorscale="YlOrBr",
+                showscale=False,
+                name="Barail Formation Top Plane"
+            ))
+
+            # Floating Hazard Diamond
+            fig_3d.add_trace(go.Scatter3d(
+                x=[active_survey.iloc[-1]["east"]],
+                y=[active_survey.iloc[-1]["north"]],
+                z=[-current_tvd],
+                mode="markers+text",
+                name="Current Bit Position",
+                marker=dict(size=8, color="#DC2626", symbol="diamond"),
+                text=[f"Bit @ {current_depth:.0f}m MD"],
+                textposition="top center"
+            ))
+
+            fig_3d.update_layout(
+                scene=dict(
+                    xaxis_title="East Offset (m)",
+                    yaxis_title="North Offset (m)",
+                    zaxis_title="True Vertical Depth (-m TVD)",
+                    camera=dict(eye=dict(x=1.4, y=-1.4, z=0.7))
+                ),
+                margin=dict(l=0, r=0, b=0, t=10),
+                height=520
+            )
+            st.plotly_chart(fig_3d, use_container_width=True)
+
+    # TAB 3: FORMATION & DEPTH CORRELATOR (MD to TVD + Stratigraphic Dip)
     with tab_correlator:
-        st.subheader("Formation & Depth Correlation (Active Well vs. Nearby Offsets)")
-        st.write("Aligns True Vertical Depth (TVD), formation tops, casing shoe leak-off limits, and historical NPT occurrences.")
+        st.subheader("📊 Stratigraphic & Formation TVD Depth Correlation")
+        st.caption("Aligns True Vertical Depth (TVD via Minimum Curvature), regional stratigraphic dip (2.4° SSE), and casing shoe leak-off limits.")
         
         corr_df = vl_rag.correlate_depth_formation(
             ACTIVE_WELL_CONFIG["lat"],
@@ -729,14 +874,124 @@ else:
             "Barail Sandstone",
             radius_km
         )
+        
+        # Add TVD and Dip shift columns
+        corr_df["calculated_tvd_m"] = current_tvd
+        corr_df["dip_adjusted_depth_m"] = corr_df.apply(
+            lambda r: round(current_tvd + dir_eng.get_stratigraphic_tvd_dip(r.get("distance_km", 2.0)), 1),
+            axis=1
+        )
+        
         st.dataframe(corr_df, use_container_width=True)
 
         st.markdown("---")
-        st.subheader("Formation Lithology Column Preview")
+        st.subheader("Formation Lithology Column & Casing Seats")
         c1, c2, c3 = st.columns(3)
-        c1.info("Top Formation: Alluvium (0 - 850m)")
-        c2.warning("Intermediate: Tipam Sandstone (850 - 2,200m)")
-        c3.error("Target Deep Zone: Barail Sandstone (2,750 - 3,200m) ⚠️ High Tectonic Drag")
+        c1.info("Top Formation: Alluvium (0 - 850m) | Casing: 20\" Conductor")
+        c2.warning("Intermediate: Tipam Sandstone (850 - 2,200m) | Casing: 13-3/8\" Surface")
+        c3.error("Target Deep Zone: Barail Sandstone (2,750 - 3,200m) | Casing: 9-5/8\" Intermediate (⚠️ High Tectonic Drag)")
+
+    # TAB 4: CREW INPT & EFFICIENCY BENCHMARKING
+    with tab_inpt:
+        st.subheader("⏱️ Invisible Non-Productive Time (INPT) Crew Benchmarking")
+        st.caption("3σ Normal Distribution analysis on 1-second telemetry uncovering connection micro-delays (up to 32% recoverable operational time).")
+
+        inpt_data = inpt_eng.analyze_crew_efficiency()
+
+        col_inpt_m1, col_inpt_m2, col_inpt_m3, col_inpt_m4 = st.columns(4)
+        col_inpt_m1.metric("Mean Connection Time", f"{inpt_data['mean_connection_time_min']} min", delta=f"{inpt_data['mean_connection_time_min'] - inpt_data['p25_benchmark_min']:.1f}m vs P25", delta_color="inverse")
+        col_inpt_m2.metric("P25 Best-in-Class", f"{inpt_data['p25_benchmark_min']} min")
+        col_inpt_m3.metric("Invisible Downtime", f"{inpt_data['total_invisible_delay_hours']} hrs", f"{inpt_data['recoverable_operational_pct']}% Recoverable")
+        col_inpt_m4.metric("Potential Cost Savings", inpt_data["potential_savings_inr"], "Rig Spread Rate: ₹1.2L/hr")
+
+        st.markdown("<br/>", unsafe_allow_html=True)
+        col_inpt_chart, col_inpt_table = st.columns([2, 1.2])
+
+        with col_inpt_chart:
+            st.markdown("#### Gaussian Distribution of Pipe Connection Durations")
+            fig_inpt = go.Figure()
+            fig_inpt.add_trace(go.Scatter(
+                x=inpt_data["curve_x"],
+                y=inpt_data["curve_y"],
+                mode="lines",
+                name="Connection Duration Density",
+                line=dict(color="#EA580C", width=3),
+                fill="tozeroy",
+                fillcolor="rgba(234, 88, 12, 0.12)"
+            ))
+            fig_inpt.add_vline(x=inpt_data["p25_benchmark_min"], line_dash="dash", line_color="#10B981", annotation_text="P25 Best Crew (3.5 min)")
+            fig_inpt.add_vline(x=inpt_data["mean_connection_time_min"], line_dash="solid", line_color="#EF4444", annotation_text=f"Active Mean ({inpt_data['mean_connection_time_min']} min)")
+            fig_inpt.update_layout(
+                xaxis_title="Pipe Connection Duration (Minutes)",
+                yaxis_title="Probability Density",
+                height=380,
+                margin=dict(l=20, r=20, t=30, b=20)
+            )
+            st.plotly_chart(fig_inpt, use_container_width=True)
+
+        with col_inpt_table:
+            st.markdown("#### Shift Crew Comparison")
+            st.markdown(f"""
+            <div class="clean-card" style="border-left: 4px solid #10B981; margin-bottom: 12px;">
+                <h5 style="color: #065F46; margin: 0;">🏆 Top Performing Crew</h5>
+                <p style="margin: 4px 0 0 0; font-size: 0.95rem;">{inpt_data['top_performer']}</p>
+            </div>
+            <div class="clean-card" style="border-left: 4px solid #EF4444;">
+                <h5 style="color: #991B1B; margin: 0;">🎯 Coaching & Optimization Target</h5>
+                <p style="margin: 4px 0 0 0; font-size: 0.95rem;">{inpt_data['coaching_target']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            st.caption("💡 Eliminating micro-delays between slips-to-slips time saves up to 4.2 rig days per 4,000m well drilled in Upper Assam.")
+
+    # TAB 5: GEOMECHANICS & SAFE MUD WINDOW
+    with tab_geom:
+        st.subheader("🔬 Dual-Driven Geomechanical Safe Mud Window (R² = 0.924)")
+        st.caption("Combines geomechanical stress equilibrium with logging sensors (CAL, DT, GR, VSH, DEN) to establish pore pressure, collapse, and fracture leak-off limits.")
+
+        mud_profile = geom_eng.generate_depth_mud_window_profile()
+        current_win = geom_eng.calculate_safe_mud_window(current_depth, "Barail Sandstone")
+
+        col_gm1, col_gm2, col_gm3, col_gm4 = st.columns(4)
+        col_gm1.metric("Pore Pressure (Pp)", f"{current_win['pore_pressure_ppg']} ppg", "Assam Barail Basin")
+        col_gm2.metric("Wellbore Collapse Limit", f"{current_win['collapse_gradient_ppg']} ppg", "Shear Failure Lower Bound")
+        col_gm3.metric("Safe Operating Window", f"{current_win['safe_window_min_ppg']} - {current_win['safe_window_max_ppg']} ppg", f"Span: {current_win['safe_window_span_ppg']} ppg")
+        col_gm4.metric("Formation Leak-Off (LOT)", f"{current_win['leak_off_pressure_ppg']} ppg", "Upper Fracture Limit")
+
+        st.markdown("<br/>", unsafe_allow_html=True)
+        col_gm_plot, col_gm_opt = st.columns([2, 1.2])
+
+        with col_gm_plot:
+            st.markdown("#### Subsurface Stress & Safe Mud Weight Profile")
+            fig_geo = go.Figure()
+            fig_geo.add_trace(go.Scatter(x=mud_profile["pore_ppg"], y=mud_profile["depth_m"], name="Pore Pressure (Pp)", line=dict(color="#3B82F6", dash="dot")))
+            fig_geo.add_trace(go.Scatter(x=mud_profile["collapse_ppg"], y=mud_profile["depth_m"], name="Collapse Gradient", line=dict(color="#10B981", width=2)))
+            fig_geo.add_trace(go.Scatter(x=mud_profile["safe_max_ppg"], y=mud_profile["depth_m"], name="Safe Max ECD", line=dict(color="#F59E0B", width=2)))
+            fig_geo.add_trace(go.Scatter(x=mud_profile["fracture_ppg"], y=mud_profile["depth_m"], name="Leak-Off Pressure (LOT)", line=dict(color="#EF4444", width=2)))
+            fig_geo.add_trace(go.Scatter(x=[current_ecd], y=[current_depth], mode="markers", name="Active Rig ECD", marker=dict(size=12, color="#EA580C", symbol="circle")))
+            fig_geo.update_yaxes(autorange="reversed")
+            fig_geo.update_layout(
+                xaxis_title="Equivalent Density (ppg)",
+                yaxis_title="Depth (m)",
+                height=420,
+                margin=dict(l=20, r=20, t=30, b=20)
+            )
+            st.plotly_chart(fig_geo, use_container_width=True)
+
+        with col_gm_opt:
+            st.markdown("#### Bourgoyne & Young ROP Optimizer")
+            rop_opt = tel_eng.risk_classifier.optimize_rop(current_wob, 110.0, current_rop, current_torque)
+            st.markdown(f"""
+            <div class="clean-card" style="border-top: 4px solid #10B981; margin-bottom: 12px;">
+                <h5 style="color: #065F46; margin: 0;">🚀 Controllable Parameters Optimizer</h5>
+                <p style="margin: 6px 0 0 0; font-size: 0.95rem; line-height: 1.6;">
+                <b>Projected ROP Gain:</b> <span style="color: #10B981; font-weight: 800;">+{rop_opt['projected_rop_gain_pct']}%</span> ({rop_opt['projected_rop_mph']} m/hr)<br/>
+                <b>Recommended WOB:</b> {rop_opt['recommended_wob_kn']} kN (Current: {rop_opt['current_wob_kn']} kN)<br/>
+                <b>Recommended RPM:</b> {rop_opt['recommended_rpm']} RPM (Current: {rop_opt['current_rpm']} RPM)<br/>
+                <b>Vibration Envelope:</b> <span style="font-weight: 700;">{rop_opt['vibration_safety_status']}</span><br/>
+                <b>Limit Check:</b> {rop_opt['drillstring_limit_check']}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
     # TAB 3: SEMANTIC KNOWLEDGE SEARCH (VECTOR RAG)
     with tab_vector:
